@@ -30,7 +30,6 @@ function verifyJwt(req, res, next) {
 }
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.jmebqdy.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -41,22 +40,108 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
-    // Send a ping to confirm a successful connection
     await client.db("shoeResale").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
+
+    // -------------------------------- COLLECTIONS -----------------------------------------------------------------
+
+    const shoeCollection = client.db("shoeResale").collection("AllShoes");
+    const catCollection = client.db("shoeResale").collection("shoeCategories");
+
+    // --------------------------------------------- VERIFY ADMIN FUNCTION ------------------------------------------
+
+    const verifyAdmin = async (req, res, next) => {
+      const decodedEmail = req.decoded.email;
+      const query = { email: decodedEmail };
+      const user = await usersCollection.findOne(query);
+      if (user?.role !== "admin") {
+        return res.status(403).send("Unauthorized access");
+      }
+      next();
+    };
+
+    // -------------------------------------------- PAYMENT API ------------------------------------------------------
+    // app.post("/create-payment-intent", async (req, res) => {
+    //   const booking = req.body;
+    //   const price = booking.price;
+    //   const amount = price * 100;
+
+    //   const paymentIntent = await stripe.paymentIntents.create({
+    //     currency: "usd",
+    //     amount: amount,
+    //     payment_method_types: ["card"],
+    //   });
+    //   res.send({
+    //     clientSecret: paymentIntent.client_secret,
+    //   });
+    // });
+    // app.post("/payment", async (req, res) => {
+    //   const payment = req.body;
+    //   const result = await paymentCollection.insertOne(payment);
+    //   res.send(result);
+    // });
+
+    // ---------------------------------------------JWT TOKEN---------------------------------------------------------
+    app.get("/jwt", async (req, res) => {
+      const email = req.query.email;
+      const response = await usersCollection.find({ email: email });
+      if (response) {
+        const token = jwt.sign({ email }, process.env.SECRET, {
+          expiresIn: "2d",
+        });
+        return res.send({ accessToken: token });
+      }
+      res.status(403).send({ accessToken: "" });
+    });
+
+    // --------------------------------------- Categories API ---------------------------------------------------
+
+    app.get("/categories", async (req, res) => {
+      const result = await catCollection.find({}).toArray();
+      res.send(result);
+    });
+
+    // ---------------------------------------- SHOE API ---------------------------------------------------------
+
+    app.post("/addProduct", async (req, res) => {
+      const newShoe = req.body;
+      const result = await shoeCollection.insertOne(newShoe);
+      res.send(result);
+    });
+
+    app.get("/allShoes", async (req, res) => {
+      const query = {};
+      const shoeList = await shoeCollection.find(query).toArray();
+      res.send(shoeList);
+    });
+    app.get("/allShoes/:uid", async (req, res) => {
+      const uid = req.params.uid;
+      const query = { seller_id: uid };
+      const options = await shoeCollection.find(query).toArray();
+      res.send(options);
+    });
+
+    app.get("/allShoes/category/:cat", async (req, res) => {
+      const cat = req.params.cat;
+      console.log(cat);
+      const query = { category: cat };
+      const result = await shoeCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    app.get("/testRoute", (req, res) => {
+      res.send("Test route works!");
+    });
   } finally {
-    // Ensures that the client will close when you finish/error
-    await client.close();
   }
 }
 run().catch(console.dir);
 
 app.get("/", async (req, res) => {
-  res.send("doctors portal running here");
+  res.send("shoe resale running here");
 });
 
-app.listen(port, () => console.log("doctors portal server"));
+app.listen(port, () => console.log("shoe resale server"));
