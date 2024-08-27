@@ -49,7 +49,12 @@ async function run() {
     // -------------------------------- COLLECTIONS -----------------------------------------------------------------
 
     const shoeCollection = client.db("shoeResale").collection("AllShoes");
+    const advertiseCollection = client
+      .db("shoeResale")
+      .collection("advertisedProducts");
     const catCollection = client.db("shoeResale").collection("shoeCategories");
+    const bookingCollection = client.db("shoeResale").collection("bookings");
+    const userCollection = client.db("shoeResale").collection("users");
 
     // --------------------------------------------- VERIFY ADMIN FUNCTION ------------------------------------------
 
@@ -58,6 +63,16 @@ async function run() {
       const query = { email: decodedEmail };
       const user = await usersCollection.findOne(query);
       if (user?.role !== "admin") {
+        return res.status(403).send("Unauthorized access");
+      }
+      next();
+    };
+
+    const verifySeller = async (req, res, next) => {
+      const decodedEmail = req.decoded.email;
+      const query = { email: decodedEmail };
+      const user = await userCollection.findOne(query);
+      if (user?.user_type !== "Seller") {
         return res.status(403).send("Unauthorized access");
       }
       next();
@@ -126,9 +141,80 @@ async function run() {
 
     app.get("/allShoes/category/:cat", async (req, res) => {
       const cat = req.params.cat;
-      console.log(cat);
       const query = { category: cat };
       const result = await shoeCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    app.delete("/allShoes/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const result = await shoeCollection.deleteOne(filter);
+      res.send(result);
+    });
+
+    // ---------------------------------------------------- ADVERTISED PRODUCTS -------------------------------------
+
+    app.post("/advertise", async (req, res) => {
+      const newShoe = req.body;
+      const result = await advertiseCollection.insertOne(newShoe);
+      res.send(result);
+    });
+
+    app.get("/advertisedProducts", async (req, res) => {
+      const query = {};
+      const shoeList = await advertiseCollection.find(query).toArray();
+      res.send(shoeList);
+    });
+
+    app.get("/advertised/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { shoe_id: id };
+      const shoe = await advertiseCollection.findOne(query);
+      const shoeAdvertised = shoe ? "true" : "false";
+      res.send(shoeAdvertised);
+    });
+
+    // ---------------------------------------------------- BOOKING API -----------------------------------------------
+
+    app.post("/booking", async (req, res) => {
+      const newBook = req.body;
+      const result = await shoeCollection.insertOne(newBook);
+      res.send(result);
+    });
+
+    // --------------------------------------------------- USER API -------------------------------------------------
+
+    app.post("/user", async (req, res) => {
+      const newUser = req.body;
+      const result = await userCollection.insertOne(newUser);
+      res.send(result);
+    });
+
+    app.get("/user/admin/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = await userCollection.findOne({ user_email: email });
+      const result = { isAdmin: user?.user_type === "admin" };
+      res.send(result);
+    });
+
+    app.get("/user/seller/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = await userCollection.findOne({ user_email: email });
+      const result = { isSeller: user?.user_type === "Seller" };
+      res.send(result);
+    });
+
+    app.put("/user/admin/:id", verifyJwt, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      const doc = {
+        $set: {
+          role: "admin",
+        },
+      };
+      const result = await userCollection.updateOne(filter, doc, options);
       res.send(result);
     });
 
