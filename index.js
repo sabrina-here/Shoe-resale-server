@@ -20,9 +20,9 @@ function verifyJwt(req, res, next) {
   }
   const token = authHeader.split(" ")[1];
 
-  jwt.verify(token, process.env.SECRET, function (err, decoded) {
+  jwt.verify(token, process.env.TOKEN_SECRET, function (err, decoded) {
     if (err) {
-      res.status(403).send("unauthorized access");
+      return res.status(403).send("unauthorized access");
     }
     req.decoded = decoded;
     next();
@@ -56,12 +56,28 @@ async function run() {
     const bookingCollection = client.db("shoeResale").collection("bookings");
     const userCollection = client.db("shoeResale").collection("users");
 
+    // ---------------------------------------------JWT TOKEN---------------------------------------------------------
+    app.get("/jwt", async (req, res) => {
+      const email = req.query.email;
+      const response = await userCollection.findOne({ user_email: email });
+      console.log("here", response);
+      if (response) {
+        const token = jwt.sign({ email }, process.env.TOKEN_SECRET, {
+          expiresIn: "2d",
+        });
+        return res.send({ accessToken: token });
+      }
+      res.status(403).send({ accessToken: "" });
+    });
+
     // --------------------------------------------- VERIFY ADMIN FUNCTION ------------------------------------------
 
     const verifyAdmin = async (req, res, next) => {
+      console.log(req.decoded);
       const decodedEmail = req.decoded.email;
-      const query = { email: decodedEmail };
-      const user = await usersCollection.findOne(query);
+      console.log(decodedEmail);
+      const query = { user_email: decodedEmail };
+      const user = await userCollection.findOne(query);
       if (user?.role !== "admin") {
         return res.status(403).send("Unauthorized access");
       }
@@ -70,7 +86,7 @@ async function run() {
 
     const verifySeller = async (req, res, next) => {
       const decodedEmail = req.decoded.email;
-      const query = { email: decodedEmail };
+      const query = { user_email: decodedEmail };
       const user = await userCollection.findOne(query);
       if (user?.user_type !== "Seller") {
         return res.status(403).send("Unauthorized access");
@@ -99,19 +115,6 @@ async function run() {
     //   res.send(result);
     // });
 
-    // ---------------------------------------------JWT TOKEN---------------------------------------------------------
-    app.get("/jwt", async (req, res) => {
-      const email = req.query.email;
-      const response = await usersCollection.find({ email: email });
-      if (response) {
-        const token = jwt.sign({ email }, process.env.SECRET, {
-          expiresIn: "2d",
-        });
-        return res.send({ accessToken: token });
-      }
-      res.status(403).send({ accessToken: "" });
-    });
-
     // --------------------------------------- Categories API ---------------------------------------------------
 
     app.get("/categories", async (req, res) => {
@@ -121,7 +124,7 @@ async function run() {
 
     // ---------------------------------------- SHOE API ---------------------------------------------------------
 
-    app.post("/addProduct", async (req, res) => {
+    app.post("/addProduct", verifyJwt, verifySeller, async (req, res) => {
       const newShoe = req.body;
       const result = await shoeCollection.insertOne(newShoe);
       res.send(result);
@@ -132,7 +135,7 @@ async function run() {
       const shoeList = await shoeCollection.find(query).toArray();
       res.send(shoeList);
     });
-    app.get("/allShoes/:uid", async (req, res) => {
+    app.get("/allShoes/:uid", verifyJwt, verifySeller, async (req, res) => {
       const uid = req.params.uid;
       const query = { seller_id: uid };
       const options = await shoeCollection.find(query).toArray();
@@ -146,7 +149,7 @@ async function run() {
       res.send(result);
     });
 
-    app.delete("/allShoes/:id", async (req, res) => {
+    app.delete("/allShoes/:id", verifyJwt, verifySeller, async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const result = await shoeCollection.deleteOne(filter);
@@ -155,7 +158,7 @@ async function run() {
 
     // ---------------------------------------------------- ADVERTISED PRODUCTS -------------------------------------
 
-    app.post("/advertise", async (req, res) => {
+    app.post("/advertise", verifyJwt, verifySeller, async (req, res) => {
       const newShoe = req.body;
       const result = await advertiseCollection.insertOne(newShoe);
       res.send(result);
@@ -167,7 +170,7 @@ async function run() {
       res.send(shoeList);
     });
 
-    app.get("/advertised/:id", async (req, res) => {
+    app.get("/advertised/:id", verifyJwt, verifySeller, async (req, res) => {
       const id = req.params.id;
       const query = { shoe_id: id };
       const shoe = await advertiseCollection.findOne(query);
@@ -177,9 +180,9 @@ async function run() {
 
     // ---------------------------------------------------- BOOKING API -----------------------------------------------
 
-    app.post("/booking", async (req, res) => {
+    app.post("/booking", verifyJwt, async (req, res) => {
       const newBook = req.body;
-      const result = await shoeCollection.insertOne(newBook);
+      const result = await bookingCollection.insertOne(newBook);
       res.send(result);
     });
 
@@ -204,6 +207,26 @@ async function run() {
       const result = { isSeller: user?.user_type === "Seller" };
       res.send(result);
     });
+
+    app.get("/admin/allSellers", verifyJwt, verifyAdmin, async (req, res) => {
+      console.log("here");
+      const result = await userCollection
+        .find({ user_type: "Seller" })
+        .toArray();
+      res.send(result);
+    });
+
+    app.get(
+      "/user/admin/allBuyers",
+      verifyJwt,
+      verifyAdmin,
+      async (req, res) => {
+        const result = await userCollection
+          .find({ user_type: "Customer" })
+          .toArray();
+        res.send(result);
+      }
+    );
 
     app.put("/user/admin/:id", verifyJwt, verifyAdmin, async (req, res) => {
       const id = req.params.id;
