@@ -6,6 +6,8 @@ require("dotenv").config();
 
 const port = process.env.PORT || 5000;
 
+const stripe = require("stripe")(`${process.env.STRIPE_SECRET}`);
+
 const app = express();
 
 //middleware
@@ -55,12 +57,12 @@ async function run() {
     const catCollection = client.db("shoeResale").collection("shoeCategories");
     const bookingCollection = client.db("shoeResale").collection("bookings");
     const userCollection = client.db("shoeResale").collection("users");
+    const paymentCollection = client.db("shoeResale").collection("payment");
 
     // ---------------------------------------------JWT TOKEN---------------------------------------------------------
     app.get("/jwt", async (req, res) => {
       const email = req.query.email;
       const response = await userCollection.findOne({ user_email: email });
-      console.log("here", response);
       if (response) {
         const token = jwt.sign({ email }, process.env.TOKEN_SECRET, {
           expiresIn: "2d",
@@ -73,12 +75,10 @@ async function run() {
     // --------------------------------------------- VERIFY ADMIN FUNCTION ------------------------------------------
 
     const verifyAdmin = async (req, res, next) => {
-      console.log(req.decoded);
       const decodedEmail = req.decoded.email;
-      console.log(decodedEmail);
       const query = { user_email: decodedEmail };
       const user = await userCollection.findOne(query);
-      if (user?.role !== "admin") {
+      if (user?.user_type !== "admin") {
         return res.status(403).send("Unauthorized access");
       }
       next();
@@ -95,25 +95,27 @@ async function run() {
     };
 
     // -------------------------------------------- PAYMENT API ------------------------------------------------------
-    // app.post("/create-payment-intent", async (req, res) => {
-    //   const booking = req.body;
-    //   const price = booking.price;
-    //   const amount = price * 100;
+    app.post("/create-payment-intent", async (req, res) => {
+      const booking = req.body;
+      const price = booking.shoe_price;
+      const amount = price * 100;
+      console.log("here: ", booking);
 
-    //   const paymentIntent = await stripe.paymentIntents.create({
-    //     currency: "usd",
-    //     amount: amount,
-    //     payment_method_types: ["card"],
-    //   });
-    //   res.send({
-    //     clientSecret: paymentIntent.client_secret,
-    //   });
-    // });
-    // app.post("/payment", async (req, res) => {
-    //   const payment = req.body;
-    //   const result = await paymentCollection.insertOne(payment);
-    //   res.send(result);
-    // });
+      const paymentIntent = await stripe.paymentIntents.create({
+        currency: "usd",
+        amount: amount,
+        payment_method_types: ["card"],
+      });
+      console.log(paymentIntent.client_secret);
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
+    });
+    app.post("/payment", async (req, res) => {
+      const payment = req.body;
+      const result = await paymentCollection.insertOne(payment);
+      res.send(result);
+    });
 
     // --------------------------------------- Categories API ---------------------------------------------------
 
@@ -186,6 +188,28 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/booking/:uid", verifyJwt, async (req, res) => {
+      const uid = req.params.uid;
+      const result = await bookingCollection
+        .find({ customer_id: uid })
+        .toArray();
+      res.send(result);
+    });
+
+    app.get("/booking/payment/:id", async (req, res) => {
+      const id = req.params.id;
+      const result = await bookingCollection.findOne({ _id: new ObjectId(id) });
+      res.send(result);
+    });
+
+    app.delete("/booking/:id", verifyJwt, async (req, res) => {
+      const id = req.params.id;
+      const result = await bookingCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      res.send(result);
+    });
+
     // --------------------------------------------------- USER API -------------------------------------------------
 
     app.post("/user", async (req, res) => {
@@ -209,21 +233,45 @@ async function run() {
     });
 
     app.get("/admin/allSellers", verifyJwt, verifyAdmin, async (req, res) => {
-      console.log("here");
       const result = await userCollection
         .find({ user_type: "Seller" })
         .toArray();
       res.send(result);
     });
 
-    app.get(
-      "/user/admin/allBuyers",
+    app.get("/admin/allBuyers", verifyJwt, verifyAdmin, async (req, res) => {
+      const result = await userCollection
+        .find({ user_type: "Customer" })
+        .toArray();
+      res.send(result);
+    });
+
+    app.delete(
+      "/admin/deleteSeller/:uid",
       verifyJwt,
       verifyAdmin,
       async (req, res) => {
-        const result = await userCollection
-          .find({ user_type: "Customer" })
-          .toArray();
+        const uid = req.params.id;
+
+        // --- deleting all shoes of this seller from all shoes collection
+        const query = { seller_id: uid };
+        const options = await shoeCollection.deleteMany(query);
+
+        // ----- deleting the seller from user database
+        const filter = { user_uid: uid };
+        const result = await userCollection.deleteOne(filter);
+        res.send(result);
+      }
+    );
+
+    app.delete(
+      "/admin/deleteBuyer/:uid",
+      verifyJwt,
+      verifyAdmin,
+      async (req, res) => {
+        const uid = req.params.id;
+        const filter = { user_uid: uid };
+        const result = await userCollection.deleteOne(filter);
         res.send(result);
       }
     );
