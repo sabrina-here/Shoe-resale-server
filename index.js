@@ -134,6 +134,19 @@ async function run() {
       });
     });
 
+    app.get("/customer/:uid", verifyJwt, async (req, res) => {
+      const uid = req.params.uid;
+      const query = { customer_id: uid };
+      const options = await paymentCollection.find(query).toArray();
+      res.send(options);
+    });
+    app.get("/seller/:uid", verifyJwt, async (req, res) => {
+      const uid = req.params.uid;
+      const query = { seller_id: uid };
+      const options = await paymentCollection.find(query).toArray();
+      res.send(options);
+    });
+
     // --------------------------------------- Categories API ---------------------------------------------------
 
     app.get("/categories", async (req, res) => {
@@ -212,6 +225,19 @@ async function run() {
         .toArray();
       res.send(result);
     });
+
+    app.get(
+      "/sellerBooking/:uid",
+      verifyJwt,
+      verifySeller,
+      async (req, res) => {
+        const uid = req.params.uid;
+        const result = await bookingCollection
+          .find({ seller_id: uid })
+          .toArray();
+        res.send(result);
+      }
+    );
 
     app.get("/booking/payment/:id", async (req, res) => {
       const id = req.params.id;
