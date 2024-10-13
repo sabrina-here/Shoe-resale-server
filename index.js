@@ -113,8 +113,25 @@ async function run() {
     });
     app.post("/payment", async (req, res) => {
       const payment = req.body;
-      const result = await paymentCollection.insertOne(payment);
-      res.send(result);
+      const paymentResult = await paymentCollection.insertOne(payment);
+
+      const shoeId = payment.shoe_id;
+
+      const del_shoe_col_res = await shoeCollection.deleteOne({
+        _id: new ObjectId(shoeId),
+      });
+      const del_book_col_res = await bookingCollection.deleteOne({
+        shoe_id: shoeId,
+      });
+      const del_adv_col_res = await advertiseCollection.deleteOne({
+        shoe_id: shoeId,
+      });
+      res.send({
+        paymentResult,
+        del_adv_col_res,
+        del_book_col_res,
+        del_shoe_col_res,
+      });
     });
 
     // --------------------------------------- Categories API ---------------------------------------------------
